@@ -1,4 +1,4 @@
-# HTTPRunner Action
+# HTTP File Runner Github Action
 
 GitHub Action for running .http files using the [httprunner](https://github.com/christianhelle/httprunner) CLI tool.
 
