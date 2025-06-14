@@ -29,6 +29,17 @@ jobs:
       with:
         files: 'test-api.http'
 
+  test-multiple-files:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Test multiple files
+      uses: ./
+      with:
+        files: 'test-api.http auth-test.http'
+
   test-validation:
     runs-on: ubuntu-latest
     steps:

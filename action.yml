@@ -63,11 +63,23 @@ runs:
         fi
         
         echo "Downloading from: $LATEST_RELEASE_URL"
-        curl -L -o "/tmp/$FILENAME" "$LATEST_RELEASE_URL"
+        if ! curl -L -o "/tmp/$FILENAME" "$LATEST_RELEASE_URL"; then
+          echo "Error: Failed to download $FILENAME"
+          exit 1
+        fi
         
         # Extract and install
         cd /tmp
-        tar -xzf "$FILENAME"
+        if ! tar -xzf "$FILENAME"; then
+          echo "Error: Failed to extract $FILENAME"
+          exit 1
+        fi
+        
+        if [[ ! -f httprunner ]]; then
+          echo "Error: httprunner binary not found in extracted files"
+          exit 1
+        fi
+        
         chmod +x httprunner
         sudo mv httprunner /usr/local/bin/
         echo "✓ httprunner installed successfully on macOS"
@@ -81,33 +93,39 @@ runs:
         $FILENAME = "httprunner-windows-x86_64.zip"
         Write-Host "Downloading $FILENAME"
         
-        # Get latest release URL
-        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/christianhelle/httprunner/releases/latest"
-        $downloadUrl = $release.assets | Where-Object { $_.name -eq $FILENAME } | Select-Object -ExpandProperty browser_download_url
-        
-        if (-not $downloadUrl) {
-          Write-Error "Could not find download URL for $FILENAME"
+        try {
+          # Get latest release URL
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/christianhelle/httprunner/releases/latest"
+          $downloadUrl = $release.assets | Where-Object { $_.name -eq $FILENAME } | Select-Object -ExpandProperty browser_download_url
+          
+          if (-not $downloadUrl) {
+            Write-Error "Could not find download URL for $FILENAME"
+            exit 1
+          }
+          
+          Write-Host "Downloading from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "$env:TEMP\$FILENAME"
+          
+          # Extract and install
+          Expand-Archive -Path "$env:TEMP\$FILENAME" -DestinationPath "$env:TEMP\httprunner-extract" -Force
+          $httprunnerPath = Get-ChildItem -Path "$env:TEMP\httprunner-extract" -Name "httprunner.exe" -Recurse | Select-Object -First 1
+          
+          if (-not $httprunnerPath) {
+            Write-Error "Could not find httprunner.exe in extracted files"
+            exit 1
+          }
+          
+          $fullPath = Join-Path "$env:TEMP\httprunner-extract" $httprunnerPath
+          Copy-Item $fullPath "$env:GITHUB_WORKSPACE\httprunner.exe"
+          
+          # Add to PATH for this session
+          echo "$env:GITHUB_WORKSPACE" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "✓ httprunner installed successfully on Windows"
+        }
+        catch {
+          Write-Error "Failed to install httprunner: $_"
           exit 1
         }
-        
-        Write-Host "Downloading from: $downloadUrl"
-        Invoke-WebRequest -Uri $downloadUrl -OutFile "$env:TEMP\$FILENAME"
-        
-        # Extract and install
-        Expand-Archive -Path "$env:TEMP\$FILENAME" -DestinationPath "$env:TEMP\httprunner-extract" -Force
-        $httprunnerPath = Get-ChildItem -Path "$env:TEMP\httprunner-extract" -Name "httprunner.exe" -Recurse | Select-Object -First 1
-        
-        if (-not $httprunnerPath) {
-          Write-Error "Could not find httprunner.exe in extracted files"
-          exit 1
-        }
-        
-        $fullPath = Join-Path "$env:TEMP\httprunner-extract" $httprunnerPath
-        Copy-Item $fullPath "$env:GITHUB_WORKSPACE\httprunner.exe"
-        
-        # Add to PATH for this session
-        $env:PATH = "$env:GITHUB_WORKSPACE;$env:PATH"
-        Write-Host "✓ httprunner installed successfully on Windows"
 
     - name: Verify httprunner installation
       shell: bash
@@ -124,18 +142,28 @@ runs:
       run: |
         echo "Running httprunner..."
         
+        # Determine the command to use
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          HTTPRUNNER_CMD="httprunner"
+        else
+          HTTPRUNNER_CMD="httprunner"
+        fi
+        
         if [[ "${{ inputs.discover }}" == "true" ]]; then
           echo "Running in discovery mode..."
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            ./httprunner.exe --discover
-          else
-            httprunner --discover
-          fi
+          $HTTPRUNNER_CMD --discover
         else
           echo "Running with specified files: ${{ inputs.files }}"
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            ./httprunner.exe ${{ inputs.files }}
-          else
-            httprunner ${{ inputs.files }}
-          fi
+          $HTTPRUNNER_CMD ${{ inputs.files }}
+        fi
+
+    - name: Cleanup
+      if: always()
+      shell: bash
+      run: |
+        echo "Cleaning up temporary files..."
+        # Clean up temporary files on all platforms
+        rm -rf /tmp/httprunner-* 2>/dev/null || true
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          rm -rf "$TEMP/httprunner-*" 2>/dev/null || true
         fi
