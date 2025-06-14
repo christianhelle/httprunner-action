@@ -1,0 +1,169 @@
+name: 'HTTPRunner Action'
+description: 'GitHub Action for running .http files using httprunner CLI tool'
+author: 'Christian Helle'
+branding:
+  icon: 'play'
+  color: 'blue'
+
+inputs:
+  discover:
+    description: 'Enable discovery mode to recursively scan for .http files in the current directory'
+    required: false
+    default: 'false'
+  files:
+    description: 'One or more .http files to execute (space-separated)'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        if [[ "${{ inputs.discover }}" == "true" && -n "${{ inputs.files }}" ]]; then
+          echo "Error: Cannot use both discovery mode and specific files. Please choose one option."
+          exit 1
+        fi
+        
+        if [[ "${{ inputs.discover }}" != "true" && -z "${{ inputs.files }}" ]]; then
+          echo "Error: Must specify either discovery mode (discover: true) or provide specific files."
+          exit 1
+        fi
+
+    - name: Install httprunner on Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        echo "Installing httprunner on Linux using snap..."
+        sudo snap install httprunner
+        echo "✓ httprunner installed successfully on Linux"
+
+    - name: Install httprunner on macOS
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        echo "Installing httprunner on macOS..."
+        
+        # Detect architecture
+        ARCH=$(uname -m)
+        if [[ "$ARCH" == "arm64" ]]; then
+          FILENAME="httprunner-macos-aarch64.tar.gz"
+        else
+          FILENAME="httprunner-macos-x86_64.tar.gz"
+        fi
+        
+        echo "Detected architecture: $ARCH, downloading $FILENAME"
+        
+        # Get latest release URL
+        LATEST_RELEASE_URL=$(curl -s https://api.github.com/repos/christianhelle/httprunner/releases/latest | grep "browser_download_url.*$FILENAME" | cut -d '"' -f 4)
+        
+        if [[ -z "$LATEST_RELEASE_URL" ]]; then
+          echo "Error: Could not find download URL for $FILENAME"
+          exit 1
+        fi
+        
+        echo "Downloading from: $LATEST_RELEASE_URL"
+        if ! curl -L -o "/tmp/$FILENAME" "$LATEST_RELEASE_URL"; then
+          echo "Error: Failed to download $FILENAME"
+          exit 1
+        fi
+        
+        # Extract and install
+        cd /tmp
+        if ! tar -xzf "$FILENAME"; then
+          echo "Error: Failed to extract $FILENAME"
+          exit 1
+        fi
+        
+        if [[ ! -f httprunner ]]; then
+          echo "Error: httprunner binary not found in extracted files"
+          exit 1
+        fi
+        
+        chmod +x httprunner
+        sudo mv httprunner /usr/local/bin/
+        echo "✓ httprunner installed successfully on macOS"
+
+    - name: Install httprunner on Windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        Write-Host "Installing httprunner on Windows..."
+        
+        $FILENAME = "httprunner-windows-x86_64.zip"
+        Write-Host "Downloading $FILENAME"
+        
+        try {
+          # Get latest release URL
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/christianhelle/httprunner/releases/latest"
+          $downloadUrl = $release.assets | Where-Object { $_.name -eq $FILENAME } | Select-Object -ExpandProperty browser_download_url
+          
+          if (-not $downloadUrl) {
+            Write-Error "Could not find download URL for $FILENAME"
+            exit 1
+          }
+          
+          Write-Host "Downloading from: $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile "$env:TEMP\$FILENAME"
+          
+          # Extract and install
+          Expand-Archive -Path "$env:TEMP\$FILENAME" -DestinationPath "$env:TEMP\httprunner-extract" -Force
+          $httprunnerPath = Get-ChildItem -Path "$env:TEMP\httprunner-extract" -Name "httprunner.exe" -Recurse | Select-Object -First 1
+          
+          if (-not $httprunnerPath) {
+            Write-Error "Could not find httprunner.exe in extracted files"
+            exit 1
+          }
+          
+          $fullPath = Join-Path "$env:TEMP\httprunner-extract" $httprunnerPath
+          Copy-Item $fullPath "$env:GITHUB_WORKSPACE\httprunner.exe"
+          
+          # Add to PATH for this session
+          echo "$env:GITHUB_WORKSPACE" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "✓ httprunner installed successfully on Windows"
+        }
+        catch {
+          Write-Error "Failed to install httprunner: $_"
+          exit 1
+        }
+
+    - name: Verify httprunner installation
+      shell: bash
+      run: |
+        echo "Verifying httprunner installation..."
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          ./httprunner.exe --version || httprunner --version
+        else
+          httprunner --version
+        fi
+
+    - name: Run httprunner
+      shell: bash
+      run: |
+        echo "Running httprunner..."
+        
+        # Determine the command to use
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          HTTPRUNNER_CMD="httprunner"
+        else
+          HTTPRUNNER_CMD="httprunner"
+        fi
+        
+        if [[ "${{ inputs.discover }}" == "true" ]]; then
+          echo "Running in discovery mode..."
+          $HTTPRUNNER_CMD --discover
+        else
+          echo "Running with specified files: ${{ inputs.files }}"
+          $HTTPRUNNER_CMD ${{ inputs.files }}
+        fi
+
+    - name: Cleanup
+      if: always()
+      shell: bash
+      run: |
+        echo "Cleaning up temporary files..."
+        # Clean up temporary files on all platforms
+        rm -rf /tmp/httprunner-* 2>/dev/null || true
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          rm -rf "$TEMP/httprunner-*" 2>/dev/null || true
+        fi

@@ -1,0 +1,12 @@
+### Authentication test
+POST https://httpbin.org/post
+Authorization: Bearer test-token
+Content-Type: application/json
+
+{
+  "user": "test",
+  "action": "login"
+}
+
+### User profile test
+GET https://httpbin.org/json
