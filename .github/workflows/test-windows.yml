@@ -1,0 +1,61 @@
+name: Test HTTPRunner Action on Windows
+
+on:
+  push:
+    branches: [ main, copilot/fix-2, copilot/fix-5 ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-discovery:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Test discovery mode
+      uses: ./
+      with:
+        discover: true
+
+  test-specific-files:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Test specific files
+      uses: ./
+      with:
+        files: 'test-api.http'
+
+  test-multiple-files:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Test multiple files
+      uses: ./
+      with:
+        files: 'test-api.http auth-test.http'
+
+  test-validation:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Test validation (should fail)
+      continue-on-error: true
+      id: validation-test
+      uses: ./
+      with:
+        discover: true
+        files: 'test-api.http'
+    
+    - name: Check validation worked
+      if: steps.validation-test.outcome == 'success'
+      run: |
+        echo "ERROR: Validation should have failed but didn't"
+        exit 1
