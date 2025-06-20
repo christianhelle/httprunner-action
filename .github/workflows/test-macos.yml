@@ -1,4 +1,4 @@
-name: Test HTTPRunner Action on macOS
+name: MacOS
 
 on:
   push:

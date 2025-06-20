@@ -1,4 +1,4 @@
-name: Test HTTPRunner Action on Windows
+name: Windows
 
 on:
   push:
